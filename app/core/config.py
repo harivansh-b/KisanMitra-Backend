@@ -27,6 +27,12 @@ class Settings(BaseSettings):
     STORAGE_BUCKET_PRODUCE: str = "produce-images"
     STORAGE_BUCKET_PROFILES: str = "profile-images"
 
+    # Chatbot — local LLM (SIH2026 local-first, no API bill)
+    ASSISTANT_MODEL: str = "qwen3:8b"
+    OLLAMA_HOST: str = "http://localhost:11434"
+    BHASHINI_USER_ID: str = ""
+    BHASHINI_API_KEY: str = ""
+
     @field_validator("CORS_ORIGINS", mode="before")
     @classmethod
     def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
