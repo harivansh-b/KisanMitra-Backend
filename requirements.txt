@@ -1,0 +1,13 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+sqlalchemy>=2.0
+psycopg[binary]>=3.1
+pydantic>=2.0
+pydantic-settings>=2.0
+pgvector>=0.4
+sqlparse>=0.5
+httpx>=0.27
+python-multipart>=0.0.9
+# optional — for rag embedding offline (pick one):
+# fastembed>=0.3
+# sentence-transformers>=3.0
