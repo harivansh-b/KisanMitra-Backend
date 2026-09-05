@@ -1,20 +1,19 @@
-"""Sql-agent orchestration — LLM writes SQL, executor runs it, loop max 2 turns.
+"""Sql-agent orchestration — lazy schema discovery (LangChain SQLDatabaseToolkit-style).
 
-DB-aware chat: model sees live schema, calls query_db, we answer with rows.
+Flow: list_tables -> get_table_info(1-3) -> [explain_query] -> query_db -> answer.
+Loop up to 4 LLM turns, 3 tool calls per turn. No upfront 6k DDL dump.
 """
 from __future__ import annotations
 
 import json
 
 from .executor import run_query
-from .prompt import OLLAMA_TOOLS, build_messages
-from .schema import get_schema, schema_text
+from .prompt import OLLAMA_TOOLS, build_messages_lazy
+from .schema import get_schema
 
 
 def _extract_tool_calls(message: dict) -> list[dict]:
-    """Normalize Ollama / OpenAI tool_calls shapes."""
     tcs = message.get("tool_calls") or []
-    # Ollama nests as {function: {name, arguments: {... or json string}}}
     norm = []
     for tc in tcs:
         fn = tc.get("function", tc)
@@ -29,53 +28,83 @@ def _extract_tool_calls(message: dict) -> list[dict]:
     return norm
 
 
+def _dispatch(engine, name: str, args: dict) -> dict:
+    if name == "list_tables":
+        from .tools import list_tables
+        return list_tables(engine)
+    if name == "get_table_info":
+        from .tools import get_table_info
+        return get_table_info(engine, args.get("table", ""))
+    if name == "explain_query":
+        from .tools import explain_query
+        return explain_query(engine, args.get("sql", ""))
+    if name == "query_db":
+        sql = args.get("sql", "")
+        params = args.get("params")
+        res = run_query(engine, sql, params)
+        return {"sql": sql, **res}
+    return {"error": f"unknown tool {name}"}
+
+
 def chat_once(engine, client, user_message: str, history: list[dict] | None = None) -> dict:
-    """One chat turn -> {answer, sql, columns, rows, truncated}.
-
-    - Injects live schema into prompt
-    - Up to 2 tool iterations: generate SQL -> execute -> final answer
-    """
+    """One chat turn -> {answer, sql, columns, rows, truncated, executions}."""
     history = history or []
-    schema = get_schema(engine)
-    stext = schema_text(schema)
-    messages = build_messages(stext, history, user_message)
+    schema_tables = get_schema(engine).get("table_names", [])
+    hint = f"Available tables: {', '.join(schema_tables)} — call list_tables then get_table_info for relevant ones."
 
-    # turn 1: model may call query_db
-    msg = client.chat(messages, tools=OLLAMA_TOOLS)
-    tcs = _extract_tool_calls(msg)
+    messages = build_messages_lazy(history, user_message, table_hint=hint)
+    executed: list[dict] = []
+    last_msg = None
+    MAX_TURNS = 4
 
-    executed = []
-    if tcs:
-        for tc in tcs[:2]:  # cap 2 tool calls
-            if tc["name"] != "query_db":
-                executed.append({"error": f"unknown tool {tc['name']}"})
-                continue
-            sql = tc["args"].get("sql", "")
-            params = tc["args"].get("params")
+    for _ in range(MAX_TURNS):
+        msg = client.chat(messages, tools=OLLAMA_TOOLS)
+        last_msg = msg
+        tcs = _extract_tool_calls(msg)
+        if not tcs:
+            break  # LLM answered directly
+        # cap 3 tool calls per turn
+        messages.append(msg)
+        has_query = False
+        for tc in tcs[:3]:
+            name = tc["name"]
+            args = tc["args"]
             try:
-                res = run_query(engine, sql, params)
-                executed.append({"sql": sql, "result": res})
-                # feed back as tool result and ask for final answer
-                messages.append(msg)
+                result = _dispatch(engine, name, args)
+                if name == "query_db":
+                    executed.append({"sql": args.get("sql", ""), "result": result})
+                    has_query = True
+                elif "error" in result and name != "query_db":
+                    executed.append({"tool": name, "error": result["error"]})
+                else:
+                    executed.append({"tool": name, "result": result})
                 messages.append({
                     "role": "tool",
-                    "content": json.dumps({"sql": sql, **res}, default=str)[:8000],
+                    "content": json.dumps(result, default=str)[:8000],
                 })
             except ValueError as e:
-                executed.append({"sql": sql, "error": str(e)})
-                messages.append(msg)
+                executed.append({"tool": name, "sql": args.get("sql", ""), "error": str(e)})
                 messages.append({"role": "tool", "content": json.dumps({"error": str(e)})})
+            except Exception as e:
+                executed.append({"tool": name, "error": str(e)[:500]})
+                messages.append({"role": "tool", "content": json.dumps({"error": str(e)[:500]})})
+        # if this turn had a query_db, give LLM a chance to answer next turn
+        # continue loop so next iteration can be final answer
+        if has_query:
+            # peek next turn — if LLM already queued more tools we loop; else next iter returns answer
+            continue
 
-        # turn 2: final answer grounded on tool results
-        final = client.chat(messages)  # no tools second pass — force answer
+    # final answer: if last turn was tool calls, ask for grounded summary
+    if last_msg is not None and _extract_tool_calls(last_msg):
+        final = client.chat(messages)
         answer = (final.get("content") or "").strip() or _fallback_answer(executed)
     else:
-        # no tool call — direct answer (greeting / out-of-scope)
-        answer = (msg.get("content") or "").strip()
+        answer = ((last_msg or {}).get("content") or "").strip()
         if not answer:
-            answer = "Ask me about mandis, prices, buyers, lots, auctions — I will query the database for you."
+            answer = _fallback_answer(executed) or "Ask me about mandis, prices, buyers, lots, auctions — I will query the database for you."
 
-    primary = executed[0] if executed else {}
+    # primary = first query_db result for backwards compat
+    primary = next((e for e in executed if "result" in e and "sql" in e), {})
     return {
         "answer": answer,
         "sql": primary.get("sql"),
@@ -83,17 +112,20 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
         "rows": (primary.get("result") or {}).get("rows"),
         "truncated": (primary.get("result") or {}).get("truncated", False),
         "executions": executed,
-        "schema_tables": schema.get("table_names", []),
+        "schema_tables": schema_tables,
     }
 
 
 def _fallback_answer(executed: list[dict]) -> str:
-    if not executed:
-        return ""
-    e = executed[0]
-    if "error" in e:
-        return f"Query failed: {e['error']}"
-    r = e.get("result", {})
-    if not r.get("rows"):
-        return "No rows found for that query."
-    return f"Found {r.get('rowcount')} row(s)."
+    q = next((e for e in executed if "result" in e and "sql" in e), None)
+    if q and "error" in q:
+        return f"Query failed: {q['error']}"
+    if q:
+        r = q.get("result", {})
+        if not r.get("rows"):
+            return "No rows found for that query."
+        return f"Found {r.get('rowcount')} row(s)."
+    err = next((e for e in executed if "error" in e), None)
+    if err:
+        return f"Tool error: {err['error']}"
+    return ""

@@ -7,49 +7,82 @@ SYSTEM = """You are KisanMitra — a market-intelligence assistant for Indian fa
 
 Rules:
 - Answer in the user's language (Marathi/Hindi/English) — detect from last message.
-- For any factual question about data, you MUST call query_db with a SELECT/WITH query. Never invent prices, arrivals, buyers, or lot IDs.
-- Only SELECT / WITH are allowed. No INSERT/UPDATE/DELETE/DROP/TRUNCATE.
-- Use correct table and column names exactly as given in SCHEMA.
-- Add LIMIT 100 if user asks for large lists. Use ILIKE for fuzzy commodity/market search.
-- After results arrive, summarize in farmer-friendly language, show the SQL you ran, and render key rows as a compact table.
-- If no rows, say so and suggest what to try (check spelling, date range).
-- Never expose service_role keys, internal errors verbatim, or other farmers' phone hashes.
-- Keep tone concise, respectful. Use ₹/quintal, tonnes, dates as dd-mm-yyyy.
+- For factual data, discover schema LAZILY via tools — do NOT guess table/column names.
+  Flow: list_tables → get_table_info(relevant tables) → explain_query(optional) → query_db.
+- You MUST call query_db with SELECT/WITH for any price/arrival/buyer/lot answer. Never invent.
+- Only SELECT / WITH allowed. No INSERT/UPDATE/DELETE/DDL.
+- Use exact column names from get_table_info. Add LIMIT 100 for lists, ILIKE for fuzzy.
+- After rows arrive, summarize farmer-friendly, show SQL, render compact table.
+- If no rows, say so and suggest fix (spelling, date range, other table).
+- Never expose keys, hashes, or internal errors verbatim. ₹/quintal, tonnes, dd-mm-yyyy.
 """
 
 TOOLS_SPEC = [
     {
         "type": "function",
         "function": {
-            "name": "query_db",
-            "description": "Run a read-only SELECT/WITH query against the KisanMitra Postgres. Returns {columns, rows, rowcount}. Only SELECT is allowed.",
+            "name": "list_tables",
+            "description": "List all marketplace tables. Call first to discover where data lives. Returns {tables, count}.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_table_info",
+            "description": "Get columns, PK/FK, indexes, pg_description comments, and 3 sample rows for one table. Call for 1-3 relevant tables after list_tables.",
             "parameters": {
                 "type": "object",
-                "properties": {
-                    "sql": {"type": "string", "description": "Single SELECT or WITH ... SELECT statement. No semicolon chaining."},
-                    "params": {"type": "object", "description": "Optional named params for $1-style placeholders", "additionalProperties": True},
-                },
+                "properties": {"table": {"type": "string", "description": "Exact table name from list_tables"}},
+                "required": ["table"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "explain_query",
+            "description": "Dry-run EXPLAIN for a SELECT/WITH. Validates SQL without executing. Returns {ok, plan} or {ok:false, error}.",
+            "parameters": {
+                "type": "object",
+                "properties": {"sql": {"type": "string", "description": "Single SELECT or WITH ... SELECT"}},
                 "required": ["sql"],
             },
         },
-    }
-]
-
-# Ollama tool format passthrough — some models expect 'tools', we normalize in router
-OLLAMA_TOOLS = [
+    },
     {
         "type": "function",
         "function": {
             "name": "query_db",
-            "description": TOOLS_SPEC[0]["function"]["description"],
-            "parameters": TOOLS_SPEC[0]["function"]["parameters"],
+            "description": "Run read-only SELECT/WITH. Returns {columns, rows, rowcount, truncated}. Only SELECT allowed.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "sql": {"type": "string", "description": "Single SELECT or WITH ... SELECT. No semicolon chaining."},
+                    "params": {"type": "object", "description": "Optional named params", "additionalProperties": True},
+                },
+                "required": ["sql"],
+            },
         },
-    }
+    },
 ]
+
+# Ollama passthrough
+OLLAMA_TOOLS = TOOLS_SPEC
 
 
 def build_messages(schema_text: str, history: list[dict], user_message: str) -> list[dict]:
-    msgs = [{"role": "system", "content": SYSTEM + "\n\nSCHEMA:\n" + schema_text}]
-    msgs.extend(history[-8:])  # last 8 turns
+    # schema_text now is minimal hint — full DDL fetched lazily via get_table_info
+    hint = schema_text if schema_text else "Call list_tables to discover available tables."
+    msgs = [{"role": "system", "content": SYSTEM + "\n\nHINT:\n" + hint}]
+    msgs.extend(history[-8:])
+    msgs.append({"role": "user", "content": user_message})
+    return msgs
+
+
+def build_messages_lazy(history: list[dict], user_message: str, table_hint: str = "") -> list[dict]:
+    hint = table_hint or "Call list_tables to discover tables."
+    msgs = [{"role": "system", "content": SYSTEM + "\n\nHINT:\n" + hint}]
+    msgs.extend(history[-8:])
     msgs.append({"role": "user", "content": user_message})
     return msgs
