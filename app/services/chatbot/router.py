@@ -1,35 +1,29 @@
-"""FastAPI router — POST /chat : DB-aware Q&A.
+"""FastAPI router — POST /chat : DB-aware Q&A over live marketplace tables.
 
-Include from app.main:  app.include_router(router, prefix="/api/v1", tags=["chatbot"])
+Uses app.core.database.engine (Supabase Postgres + PostGIS; SQLite in tests).
+Auto-discovers all tables via schema.py — no hard-coded model list.
+
+Register: already included from app.main (prefix /api/v1, tag chatbot).
+Paths:
+  POST /api/v1/chat        → DB-aware answer + SQL + rows
+  GET  /api/v1/chat/schema → live schema dump
+  GET  /api/v1/chat/health → chatbot health
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 
+from app.core.database import engine as core_engine  # single source of truth
 from .agent import chat_once
 from .client import OllamaClient
 
 router = APIRouter()
 
-# lazy engine — honors DATABASE_URL env, falls back to sqlite dev
-_engine: Engine | None = None
-
 
 def get_engine() -> Engine:
-    global _engine
-    if _engine is not None:
-        return _engine
-    import os
-
-    url = os.environ.get("DATABASE_URL", "sqlite:///./kisanmitra.db")
-    if url.startswith("sqlite"):
-        _engine = create_engine(url, connect_args={"check_same_thread": False})
-    else:
-        _engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=10)
-    return _engine
+    return core_engine
 
 
 def get_client() -> OllamaClient:
@@ -76,6 +70,6 @@ def chat_schema(engine: Engine = Depends(get_engine)):  # noqa: B008
     return get_schema(engine, force=True)
 
 
-@router.get("/health")
-def health():
+@router.get("/chat/health")
+def chat_health():
     return {"status": "ok", "service": "kisanmitra-chatbot"}

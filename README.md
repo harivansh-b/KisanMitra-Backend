@@ -1,238 +1,445 @@
-# KisanMitra-Backend
+﻿# KisanMitra Backend
 
-**SIH 2026 — SIH26132** | Strengthening market linkages and price discovery for farmers  
-*Govt. of Maharashtra — Maharashtra State Innovation Society*
+> **Agri Market Linkage Platform** — A three-sided marketplace connecting Farmers, FPOs (Farmer Producer Organizations), and Buyers.
 
-Market-intelligence + transaction enablement platform: mandi prices, buyer demand, lot creation, price forecasting, and a DB-aware chatbot that answers any question by querying the live database.
-
-> **Active branch:** `feat/chatbot-sql-agent` (commit `c3cc137`) — DB-aware SQL agent shipped, tests passing locally (FakeTransport + SQLite, no Ollama required).
+Built with **FastAPI + Supabase PostgreSQL + PostGIS + SQLAlchemy + Alembic**.
 
 ---
 
-## What is KisanMitra?
+## Table of Contents
 
-Farmers (especially smallholders/FPOs) lack visibility into mandi prices, buyer demand, quality specs, logistics, storage and payment reliability across nearby markets. Buyers struggle to aggregate consistent volume/quality.
-
-KisanMitra aggregates mandi prices, buyer demand, arrival volumes, transport/storage options; provides localized price trends + sale-window recommendations; matches farmer/FPOs with verified buyers; enables lot creation, quality grading, digital offers, logistics coordination, payment tracking and grievance handling.
-
-**This repo = backend.** Frontend + price-prediction service live in sibling dirs/services.
-
----
-
-## Repo Map (actual, as shipped)
-
-```
-KisanMitra-Backend/
-├── app/
-│   ├── __init__.py
-│   ├── main.py               # FastAPI entry — uvicorn app.main:app --reload
-│   ├── config.py             # Settings (DATABASE_URL, SUPABASE_*, ASSISTANT_MODEL, OLLAMA_HOST, BHASHINI_*)
-│   ├── db.py                 # Engine/Session — Supabase direct :5432, SQLite dev fallback
-│   └── services/
-│       ├── __init__.py
-│       ├── chatbot/           # ← YOUR SCOPE — DB-aware SQL agent
-│       │   ├── __init__.py    # re-exports OllamaClient, chat_once, router
-│       │   ├── client.py      # OllamaClient — stdlib urllib only, FakeTransport for tests
-│       │   ├── schema.py      # Live introspection via sqlalchemy.inspect — 5 min cache
-│       │   ├── prompt.py      # SYSTEM + query_db tool spec (Marathi/Hindi/English)
-│       │   ├── executor.py    # SELECT/WITH-only guard, 5s timeout, 100-row cap
-│       │   ├── agent.py       # 2-turn loop: schema→LLM→query_db→run_query→grounded answer
-│       │   ├── router.py      # POST /api/v1/chat, GET /api/v1/chat/schema, GET /health
-│       │   └── rag.py         # Optional pgvector HNSW fallback (multilingual-e5-small 384d)
-│       └── price_prediction/
-│           └── __init__.py    # stub — teammate/you wire forecast model here
-├── tests/
-│   ├── __init__.py
-│   └── test_chatbot.py       # 5 tests — no Ollama needed
-├── requirements.txt
-├── .env.example
-└── .gitignore
-```
+1. [Architecture Overview](#1-architecture-overview)
+2. [Prerequisites](#2-prerequisites)
+3. [Environment Variables](#3-environment-variables)
+4. [Supabase Setup](#4-supabase-setup)
+5. [Local Development Setup](#5-local-development-setup)
+6. [Database Migrations (Alembic)](#6-database-migrations-alembic)
+7. [Running the API Server](#7-running-the-api-server)
+8. [API Documentation](#8-api-documentation)
+9. [Authentication Flow](#9-authentication-flow)
+10. [Role-Based Access Control (RBAC)](#10-role-based-access-control-rbac)
+11. [Storage (Supabase Storage)](#11-storage-supabase-storage)
+12. [Geographic Features (PostGIS)](#12-geographic-features-postgis)
+13. [Running Tests](#13-running-tests)
+14. [Project Structure](#14-project-structure)
+15. [Future Services (Placeholders)](#15-future-services-placeholders)
 
 ---
 
-## Tech Stack (as planned — locked for SIH2026)
+## 1. Architecture Overview
 
-| Layer | Choice | Why (SIH2026 judges) |
-|-------|--------|----------------------|
-| **API** | FastAPI 0.115 + Uvicorn 0.30 | async, OpenAPI, Pydantic validation |
-| **DB** | Supabase Postgres direct `db.*.supabase.co:5432` + SQLAlchemy 2.0 + psycopg 3.1 | Supabase is **source of truth**; `DATABASE_URL=sqlite://` only for dev/tests |
-| **Auth/Storage/Realtime** | Supabase (policies.sql enables `pgvector`, `postgis`, `pg_trgm`) | row-level security, lot photo buckets, live auction bids |
-| **LLM** | **Local-first** — Ollama `qwen3:8b` default, swappable via `ASSISTANT_MODEL` → `sarvam-2b` / `bharatgenai/AgriParam` GGUF | Offline demo, ₹0 inference, Atmanirbhar — SIH2026 prioritizes local over paid APIs |
-| **Chat transport** | `OllamaClient` (stdlib `urllib`, no pip dep) + `FakeTransport` in tests | import-safe without Ollama running |
-| **Vector / RAG** | Supabase `pgvector` (already `create extension if not exists vector` in `supabase/policies.sql`) — `vector(384)` HNSW | single DB for RAG + transactional data; `fastembed` or `sentence-transformers` for `intfloat/multilingual-e5-small` |
-| **Embedding** | `intfloat/multilingual-e5-small` (384d) or `BAAI/bge-m3` (1024d) | Marathi+Hindi+English single model |
-| **Validation** | `sqlparse` + regex guard | read-only safety |
-| **i18n/voice (planned)** | Bhashini (`BHASHINI_USER_ID/KEY` in config), Whisper/Coqui local | Marathi-first for Maharashtra org |
+KisanMitra follows a **clean, modular service-oriented architecture**. All business logic lives in `app/services/`, HTTP concerns in `app/api/v1/`, and data models in `app/models/`.
+
+```
+Client (Mobile/Web)
+        |
+        v
+  FastAPI Application
+  +-- Supabase Auth  ---------------> Supabase Auth (JWT verification)
+  +-- API Routers (app/api/v1/)
+  +-- Services (app/services/)
+  |   +-- auth_service        --- Profile registration
+  |   +-- farmer_service      --- Farmer CRUD, listings
+  |   +-- fpo_service         --- FPO CRUD, members
+  |   +-- buyer_service       --- Buyer CRUD, requirements
+  |   +-- listing_service     --- Produce listings
+  |   +-- marketplace_service --- Deterministic matching engine
+  |   +-- order_service       --- Order state machine
+  |   +-- transaction_service --- Payment records
+  |   +-- storage_service     --- File upload/download
+  |   +-- crop_service        --- Crop catalogue
+  |
+  +-- SQLAlchemy ORM -----------> Supabase PostgreSQL + PostGIS
+  +-- Supabase Storage ---------> Supabase Storage Buckets
+```
+
+### User Roles
+
+| Role | Description |
+|------|-------------|
+| **FARMER** | Individual farmers who create produce listings |
+| **FPO** | Farmer Producer Organizations that aggregate produce and manage members |
+| **BUYER** | Wholesalers, processors, exporters, retailers who post purchase requirements |
 
 ---
 
-## Chatbot — DB-Aware SQL Agent (shipped)
+## 2. Prerequisites
 
-Instead of hard-coded intents, the chatbot **reads the live DB schema** and writes SQL for any question.
+| Tool | Version |
+|------|---------|
+| Python | 3.10+ |
+| PostgreSQL with PostGIS | (via Supabase - no local install needed) |
+| Git | Any |
 
-```
-User (mr/hi/en)
-  → POST /api/v1/chat {message, history}
-    → schema.py  — inspect(engine) → {tables, columns, fks} (cached 5 min)
-    → prompt.py  — SYSTEM + SCHEMA + history → messages[]
-    → Ollama qwen3:8b (or Sarvam/AgriParam) → tool call query_db{sql}
-    → executor.py — validate (SELECT/WITH only, no ; chaining, no DDL) → run_query()
-    → agent responds with {answer, sql, columns, rows, truncated}
-```
-
-**Guarantees:**
-- **Read-only** — only `SELECT`/`WITH ... SELECT`; blocks `INSERT/UPDATE/DELETE/DROP/TRUNCATE/ALTER/CREATE`.
-- **Single statement** — rejects `; DROP` chaining.
-- **No hallucination** — every rupee/arrival/buyer figure comes from a SQL result, never LLM memory.
-- **Auto-adapts** — teammate pushes a new table → `get_schema(force=True)` picks it up, zero code change.
-- **Auditable** — response includes the SQL that was run + a row table (demo wow-factor).
-
-**pgvector RAG (`rag.py`)** — optional semantic fallback when SQL returns 0 rows. DDL (run once in Supabase SQL editor after `alembic upgrade head`):
-
-```sql
-create extension if not exists vector;
-create table if not exists rag_docs (
-  id uuid primary key default gen_random_uuid(),
-  content text not null,
-  metadata jsonb default '{}',
-  embedding vector(384)
-);
-create index if not exists rag_docs_hnsw on rag_docs using hnsw (embedding vector_cosine_ops);
-alter table rag_docs enable row level security;
-create policy "open read rag" on rag_docs for select using (true);
-```
-
-Embed with `fastembed` (`TextEmbedding("intfloat/multilingual-e5-small")`) or `sentence-transformers`.
+Supabase account with:
+- A Supabase project (PostgreSQL + Auth + Storage)
+- PostGIS extension enabled on the project
 
 ---
 
-## API
+## 3. Environment Variables
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | `{status, service, version}` |
-| `POST` | `/api/v1/chat` | DB-aware Q&A — body `{message, history?, language?}` → `{answer, sql, columns, rows, truncated, schema_tables}` |
-| `GET` | `/api/v1/chat/schema` | Live schema dump (forced refresh) — `{tables, table_names}` |
-| `GET` | `/api/v1/chat/health` | Chatbot sub-health |
-
-**Example:**
+Copy `.env.example` to `.env` and fill in your values:
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"onion price in Pune last week? top 5"}'
-# → {"answer":"Top onion: Nashik 1700, Pune 1500 ...","sql":"SELECT ...","rows":[...]}
-```
-
-Marathi:
-
-```bash
-curl -X POST http://localhost:8000/api/v1/chat \
-  -H "Content-Type: application/json" \
-  -d '{"message":"कांद्याचा भाव काय आहे पुण्यात?"}'
-```
-
----
-
-## Local Setup & Test
-
-```bash
-# 1. Clone (chatbot branch)
-git clone https://github.com/harivansh-b/KisanMitra-Backend.git
-cd KisanMitra-Backend
-git checkout feat/chatbot-sql-agent
-
-# 2. Env
 cp .env.example .env
-# edit DATABASE_URL — Supabase direct when ready, else sqlite for dev:
-# DATABASE_URL=sqlite:///./kisanmitra.db
-# DATABASE_URL=postgresql+psycopg://postgres.PROJECT:PASS@db.PROJECT.supabase.co:5432/postgres
-# ASSISTANT_MODEL=qwen3:8b          # or sarvam-2b / AgriParam GGUF via Ollama
-# OLLAMA_HOST=http://localhost:11434
-
-# 3. Install
-pip install -r requirements.txt
-# optional RAG embedding offline:
-# pip install fastembed
-
-# 4. Run (no DB migration needed — SQLite auto-creates; Supabase uses Alembic when teammate pushes it)
-uvicorn app.main:app --reload
-# → http://localhost:8000/health
-# → http://localhost:8000/docs  (Swagger)
-
-# 5. With real LLM (local, no API bill)
-ollama serve &
-ollama pull qwen3:8b
-curl -X POST http://localhost:8000/api/v1/chat -H "Content-Type: application/json" \
-  -d '{"message":"list markets"}'
-
-# 6. Tests (no Ollama needed — FakeTransport + in-memory SQLite)
-pytest -q
-# or without pytest:
-python -c "from tests.test_chatbot import *; print('import ok')"
 ```
 
-**What was verified locally (EXIT:0, no Ollama):**
-- Schema introspection discovers 6 tables, FK hints, 6k-char truncation
-- Executor allows `SELECT`/`WITH`, blocks `DELETE`/`DROP`/multi-stmt, enforces 100-row cap + `truncated` flag
-- `AVG(modal_price) GROUP BY`, window functions, `ILIKE` via `LIKE COLLATE NOCASE` all pass
-- Agent 2-turn loop: `tools→query_db→execute→grounded answer`; greeting no-tool path; bad-SQL error caught gracefully
-- RAG `_has_rag` false when no `rag_docs` table — silent no-op
-- Marathi query → SQL + Marathi answer
-- Full FastAPI e2e via `TestClient` with file DB → `200 {answer, sql, rows}`
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DATABASE_URL` | Full Supabase PostgreSQL connection string | `postgresql+psycopg2://postgres.xyz:pw@aws-0-ap-south-1.pooler.supabase.com:5432/postgres` |
+| `SUPABASE_URL` | Your Supabase project URL | `https://xyz.supabase.co` |
+| `SUPABASE_ANON_KEY` | Supabase public anon key | `eyJh...` |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (admin) | `eyJh...` |
+| `SUPABASE_JWT_SECRET` | JWT secret from Supabase dashboard -> Settings -> API | `your-jwt-secret` |
+| `ENVIRONMENT` | `development` / `production` / `testing` | `development` |
+| `ALLOWED_ORIGINS` | Comma-separated CORS origins | `http://localhost:3000,http://localhost:8081` |
+| `MAX_UPLOAD_SIZE_MB` | Maximum file upload size in MB | `10` |
+| `DOCUMENTS_BUCKET` | Supabase Storage bucket for documents | `documents` |
+| `PRODUCE_IMAGES_BUCKET` | Bucket for produce listing images | `produce-images` |
+| `PROFILE_IMAGES_BUCKET` | Bucket for user profile images | `profile-images` |
+
+> WARNING: Never commit `.env` to version control. Use `.env.example` as the reference.
 
 ---
 
-## Environment Variables
+## 4. Supabase Setup
 
-| Var | Default | Notes |
-|-----|---------|-------|
-| `DATABASE_URL` | `sqlite:///./kisanmitra.db` | Supabase direct `postgresql+psycopg://...@db.*.supabase.co:5432/postgres` in prod |
-| `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_KEY` | `""` | Supabase dashboard |
-| `ASSISTANT_MODEL` | `qwen3:8b` | `sarvam-2b`, `bharatgenai/AgriParam` GGUF — same `OllamaClient` |
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama `/api/chat` |
-| `BHASHINI_USER_ID` / `BHASHINI_API_KEY` | `""` | Bhashini translation (planned) |
+### 4.1 Enable PostGIS
 
----
+In your Supabase dashboard -> **Database -> Extensions**, enable **PostGIS**. Alembic also runs `CREATE EXTENSION IF NOT EXISTS postgis` automatically during migrations.
 
-## Git
+### 4.2 Create Storage Buckets
 
-- **Default branch:** `main` (1 commit `e2914af Initial commit` — 2 stubs)
-- **Active work:** `feat/chatbot-sql-agent` → `c3cc137 feat(chatbot): DB-aware SQL agent + pgvector RAG` — 17 files, 645 insertions
-- **PR:** https://github.com/harivansh-b/KisanMitra-Backend/pull/new/feat/chatbot-sql-agent
-- **Push:** `git push -u origin feat/chatbot-sql-agent` done.
+In Supabase dashboard -> **Storage**, create three buckets:
 
----
+| Bucket Name | Access | Purpose |
+|-------------|--------|---------|
+| `documents` | Private | KYC documents, certifications |
+| `produce-images` | Public | Produce listing photos |
+| `profile-images` | Public | User/organization profile photos |
 
-## What Done vs What Next
+### 4.3 Get Auth Keys
 
-**Done:**
-- [x] Repo mapped (was 3-file skeleton)
-- [x] Stack locked with Supabase + local LLM rationale for SIH2026 judging (local/cheap/offline/Atmanirbhar)
-- [x] `pgvector` confirmed available on Supabase (`policies.sql:8` already enabled)
-- [x] Chatbot scaffold — 7 modules (client, schema, prompt, executor, agent, router, rag) + shared config/db
-- [x] FastAPI wired (`app/main.py`), `requirements.txt`, `.env.example`, `.gitignore`
-- [x] Tests (`FakeTransport` + SQLite mem) + local e2e via `TestClient` all passing
-- [x] Branch pushed, no secrets, no API bill
+From **Project Settings -> API**:
+- Copy **Project URL** -> `SUPABASE_URL`
+- Copy **anon / public** key -> `SUPABASE_ANON_KEY`
+- Copy **service_role** key -> `SUPABASE_SERVICE_ROLE_KEY`
+- Copy **JWT Secret** -> `SUPABASE_JWT_SECRET`
 
-**Next (your call):**
-- [ ] Teammate pushes Supabase tables / Alembic — chatbot needs zero change (auto-discovers)
-- [ ] Price-prediction service (`app/services/price_prediction`) → expose as `forecast_price(crop, mandi)` tool if needed
-- [ ] Wire Bhashini/Marathi STT for voice + `fastembed` population of `rag_docs`
-- [ ] Add `auth` dependency (Supabase JWT → `farmer_id` filter injection) before prod
-- [ ] Deploy: Docker + `uvicorn` + Supabase; demo offline via Ollama Q4 quantized model
+### 4.4 Get Database URL
+
+From **Project Settings -> Database -> Connection string** (Python/SQLAlchemy format):
+```
+postgresql+psycopg2://postgres.[project-ref]:[password]@aws-0-ap-south-1.pooler.supabase.com:5432/postgres
+```
 
 ---
 
-## SIH2026 Notes
+## 5. Local Development Setup
 
-- **Evaluation:** Novelty 20% / Feasibility 25% / Impact 25% / UX 15% / Implementation 15%. Local + offline + zero cost scores high on Feasibility & Impact.
-- **Why local > API:** cost at farmer scale, 2G/offline rural, data sovereignty, reproducible judging (no API key to expire). Show airplane-mode demo.
-- **Language:** Maharashtra org → Marathi native is not optional. `Sarvam-2b` or `AgriParam + IndicTrans2/Bhashini` bridge required; current `qwen3:8b` is placeholder swappable via env.
+```bash
+# Clone and enter directory
+git clone <repo-url>
+cd backend
+
+# Create virtual environment
+python -m venv .venv
+
+# Activate (Windows PowerShell)
+.\.venv\Scripts\Activate.ps1
+
+# Activate (Linux/macOS)
+source .venv/bin/activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure environment
+cp .env.example .env
+# Edit .env with your Supabase credentials
+
+# Run database migrations
+alembic upgrade head
+
+# Start the development server
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+---
+
+## 6. Database Migrations (Alembic)
+
+All migrations live in `alembic/versions/`. The Alembic configuration reads `DATABASE_URL` from `.env` automatically.
+
+```bash
+# Apply all pending migrations
+alembic upgrade head
+
+# Check current migration status
+alembic current
+
+# View migration history
+alembic history --verbose
+
+# Generate a new migration after model changes
+alembic revision --autogenerate -m "describe your change"
+
+# Rollback one migration
+alembic downgrade -1
+```
+
+> NOTE: Alembic automatically runs `CREATE EXTENSION IF NOT EXISTS postgis` on PostgreSQL before applying migrations.
+
+---
+
+## 7. Running the API Server
+
+```bash
+# Development (hot reload)
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Production
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
+```
+
+On startup, the application:
+1. Connects to the database
+2. Seeds default crop catalogue (idempotent - safe to run multiple times)
+
+---
+
+## 8. API Documentation
+
+| URL | Description |
+|-----|-------------|
+| `http://localhost:8000/docs` | **Swagger UI** - interactive API explorer |
+| `http://localhost:8000/redoc` | **ReDoc** - clean API reference |
+| `http://localhost:8000/openapi.json` | Raw OpenAPI schema |
+
+### API Groups
+
+| Prefix | Description |
+|--------|-------------|
+| `/api/v1/auth` | Profile registration, current user info |
+| `/api/v1/farmers` | Farmer profile management, produce listings |
+| `/api/v1/fpos` | FPO profile management, member management |
+| `/api/v1/buyers` | Buyer profile management, purchase requirements |
+| `/api/v1/crops` | Crop catalogue (browse, create, manage) |
+| `/api/v1/listings` | Public produce listing search + matching |
+| `/api/v1/marketplace` | Matching engine (listing<->requirement pairing) |
+| `/api/v1/orders` | Order creation, state transitions, history |
+| `/api/v1/transactions` | Payment/transaction records |
+| `/api/v1/storage` | File upload/download/delete |
+| `/api/v1/geo` | Geographic utilities |
+
+---
+
+## 9. Authentication Flow
+
+KisanMitra uses **Supabase Auth** for identity management.
+
+```
+1. Client registers/logs in via Supabase Auth SDK
+   (Mobile app / web frontend uses @supabase/supabase-js)
+
+2. Supabase returns a JWT access_token
+
+3. Client sends: Authorization: Bearer <access_token>
+
+4. Backend verifies JWT:
+   a. First tries local HMAC verification using SUPABASE_JWT_SECRET (fast, offline)
+   b. Falls back to Supabase API GET /auth/v1/user (network call)
+
+5. Verified auth_user_id is looked up in local `users` table
+
+6. Role-based dependencies enforce FARMER / FPO / BUYER access
+```
+
+### Profile Registration
+
+After Supabase Auth sign-up, users must register their profile:
+
+```http
+POST /api/v1/auth/register
+Authorization: Bearer <supabase_jwt>
+
+{
+  "role": "FARMER",
+  "phone": "9876543210"
+}
+```
+
+This creates a `users` record. The user can then complete their role-specific profile (FarmerProfile, FPOProfile, BuyerProfile).
+
+---
+
+## 10. Role-Based Access Control (RBAC)
+
+FastAPI dependencies in `app/core/dependencies.py` enforce role checks:
+
+| Dependency | Allows |
+|------------|--------|
+| `get_current_user` | Any authenticated user |
+| `get_current_farmer` | FARMER only |
+| `get_current_fpo` | FPO only |
+| `get_current_buyer` | BUYER only |
+| `get_current_seller` | FARMER or FPO |
+
+---
+
+## 11. Storage (Supabase Storage)
+
+Files are stored in Supabase Storage buckets. The `storage_service.py` handles:
+
+- Upload with content-type detection
+- Metadata persistence in PostgreSQL (`documents` table)
+- Signed URL generation for private buckets
+- Role-based access (users can only manage their own files)
+
+### Upload a document
+
+```
+POST /api/v1/storage/upload
+Authorization: Bearer <token>
+Content-Type: multipart/form-data
+
+file=<binary>
+owner_type=farmer
+owner_id=<uuid>
+```
+
+### Get a signed download URL
+
+```
+GET /api/v1/storage/{document_id}/url?expires_in=3600
+Authorization: Bearer <token>
+```
+
+### Required Storage Buckets
+
+| Bucket | Used for |
+|--------|----------|
+| `documents` | KYC, certifications, agreements |
+| `produce-images` | Listing photos |
+| `profile-images` | Profile/org photos |
+
+---
+
+## 12. Geographic Features (PostGIS)
+
+KisanMitra uses PostGIS for location-based queries (e.g., find buyers within 100 km of a farmer).
+
+- Farmer, FPO, and Buyer profiles store `latitude`/`longitude` as floats.
+- These are converted to PostGIS `Geography(POINT, 4326)` internally via the `PointGeography` TypeDecorator.
+- `geo_service.apply_radius_filter()` uses `ST_DWithin` for efficient spatial queries.
+
+### Example: listings near a location
+
+```
+GET /api/v1/listings?lat=18.52&lon=73.86&radius_km=50
+```
+
+---
+
+## 13. Running Tests
+
+Tests use **SQLite in-memory** database - no Supabase credentials needed.
+
+```bash
+# Run all tests
+python -m pytest tests/ -v
+
+# Run a specific test file
+python -m pytest tests/test_auth.py -v
+
+# Run with coverage
+python -m pytest tests/ --cov=app --cov-report=term-missing
+```
+
+### Test Matrix
+
+| File | Tests | Coverage |
+|------|-------|----------|
+| `test_auth.py` | 5 | Auth, profile registration, me endpoint |
+| `test_farmers.py` | 4 | Farmer profile, produce listings, RBAC |
+| `test_fpos.py` | 3 | FPO profile, member management |
+| `test_buyers.py` | 4 | Buyer profile, requirements, RBAC |
+| `test_marketplace.py` | 2 | Listing search, deterministic matching |
+| `test_orders.py` | 2 | Full order workflow, seller rejection |
+| `test_storage.py` | 1 | File upload, metadata, signed URL |
+| **Total** | **21** | **21 passed** |
+
+> In test mode (TESTING=1), actual Supabase Storage uploads are skipped. Only metadata is recorded in the test database.
+
+---
+
+## 14. Project Structure
+
+```
+backend/
++-- alembic/                    # Database migrations
+|   +-- versions/               # Migration files
+|   +-- env.py                  # Alembic config (reads from .env)
++-- app/
+|   +-- main.py                 # FastAPI app, lifespan, CORS, router registration
+|   +-- core/
+|   |   +-- config.py           # Pydantic Settings (reads .env)
+|   |   +-- database.py         # SQLAlchemy engine, PointGeography TypeDecorator
+|   |   +-- dependencies.py     # Auth + role FastAPI dependencies
+|   |   +-- exceptions.py       # Exception hierarchy + handlers
+|   |   +-- security.py         # JWT verification, Supabase admin client
+|   +-- api/
+|   |   +-- deps.py             # Re-exports dependencies
+|   |   +-- v1/                 # API routers (one per domain)
+|   |       +-- auth.py, farmers.py, fpos.py, buyers.py,
+|   |           crops.py, listings.py, marketplace.py,
+|   |           orders.py, transactions.py, storage.py, geo.py
+|   +-- models/                 # SQLAlchemy ORM models
+|   |   +-- user.py, farmer.py, fpo.py, fpo_member.py
+|   |   +-- buyer.py, buyer_requirement.py, crop.py
+|   |   +-- produce_listing.py, order.py, transaction.py, document.py
+|   +-- schemas/                # Pydantic request/response schemas
+|   +-- services/               # Business logic layer
+|   |   +-- auth_service.py, farmer_service.py, fpo_service.py
+|   |   +-- buyer_service.py, crop_service.py, listing_service.py
+|   |   +-- requirement_service.py, marketplace_service.py
+|   |   +-- order_service.py, transaction_service.py
+|   |   +-- storage_service.py, geo_service.py
+|   |   +-- chatbot_service.py          # [Placeholder - next sprint]
+|   |   +-- price_prediction_service.py # [Placeholder - next sprint]
+|   |   +-- sales_window_service.py     # [Placeholder - next sprint]
+|   +-- utils/
+|       +-- enums.py            # All domain enums
+|       +-- pagination.py       # PaginationParams, PaginatedResponse
+|       +-- validators.py       # Phone, pincode, lat/lon validators
++-- tests/
+|   +-- conftest.py             # SQLite test DB, shared fixtures
+|   +-- test_auth.py, test_farmers.py, test_fpos.py
+|   +-- test_buyers.py, test_marketplace.py
+|   +-- test_orders.py, test_storage.py
++-- .env.example                # Environment variable template
++-- alembic.ini                 # Alembic configuration
++-- requirements.txt            # Python dependencies
++-- README.md
+```
+
+---
+
+## 15. Future Services (Placeholders)
+
+The following services are scaffolded with clean interfaces but contain **no business logic** - they will be implemented in the next sprint:
+
+| Service | File | Planned Functionality |
+|---------|------|-----------------------|
+| Chatbot | `app/services/chatbot_service.py` | AI-powered farmer advisory |
+| Price Prediction | `app/services/price_prediction_service.py` | ML-based crop price forecasting |
+| Sales Window | `app/services/sales_window_service.py` | Optimal selling time prediction |
+
+Each placeholder raises `NotImplementedError` to signal unimplemented state while providing the expected function signatures for seamless integration.
 
 ---
 
 ## License
 
-Internal — SIH 2026 submission. Not for redistribution until finale.
+Private - KisanMitra Agri-Tech Platform.

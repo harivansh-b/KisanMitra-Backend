@@ -1,21 +1,76 @@
-# Python
+﻿# ─── Python ───────────────────────────────────────────────
 __pycache__/
 *.py[cod]
+*.class
+*.so
+*.pyd
 *.pyo
+
+# ─── Virtual Environments ─────────────────────────────────
 .venv/
 venv/
-.env
-*.db
-*.sqlite
-*.sqlite3
+env/
+ENV/
+.env.bak
 
-# OS
+# ─── Environment / Secrets ────────────────────────────────
+.env
+*.env
+!.env.example
+
+# ─── Distribution / Build ─────────────────────────────────
+dist/
+build/
+*.egg-info/
+*.egg
+MANIFEST
+
+# ─── Packaging ────────────────────────────────────────────
+pip-log.txt
+pip-delete-this-directory.txt
+.eggs/
+
+# ─── Testing ──────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+*.cover
+*.hypothesis/
+
+# ─── MyPy / Type checking ─────────────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+
+# ─── Alembic ──────────────────────────────────────────────
+# Keep versions tracked; ignore generated temp files
+alembic/versions/*.pyc
+
+# ─── IDEs & Editors ───────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
 Thumbs.db
 
-# IDE
-.vscode/
-.idea/
-
-# Logs
+# ─── Logs ─────────────────────────────────────────────────
 *.log
+logs/
+
+# ─── Docker ───────────────────────────────────────────────
+.dockerignore
+
+# ─── OS ───────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
