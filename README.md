@@ -22,7 +22,8 @@ Built with **FastAPI + Supabase PostgreSQL + PostGIS + SQLAlchemy + Alembic**.
 12. [Geographic Features (PostGIS)](#12-geographic-features-postgis)
 13. [Running Tests](#13-running-tests)
 14. [Project Structure](#14-project-structure)
-15. [Future Services (Placeholders)](#15-future-services-placeholders)
+15. [Chatbot — DB-aware SQL Agent](#15-chatbot--db-aware-sql-agent)
+16. [Future Services (Placeholders)](#16-future-services-placeholders)
 
 ---
 
@@ -368,7 +369,8 @@ python -m pytest tests/ --cov=app --cov-report=term-missing
 | `test_marketplace.py` | 2 | Listing search, deterministic matching |
 | `test_orders.py` | 2 | Full order workflow, seller rejection |
 | `test_storage.py` | 1 | File upload, metadata, signed URL |
-| **Total** | **21** | **21 passed** |
+| `test_chatbot.py` | 6 | Schema discovery, SELECT whitelist, lazy tools, chat_once FakeTransport |
+| **Total** | **27** | **27 passed** |
 
 > In test mode (TESTING=1), actual Supabase Storage uploads are skipped. Only metadata is recorded in the test database.
 
@@ -426,7 +428,105 @@ backend/
 
 ---
 
-## 15. Future Services (Placeholders)
+## 15. Chatbot — DB-aware SQL Agent
+
+The chatbot lives in `app/services/chatbot/` and auto-discovers every marketplace table
+(`users`, `crops`, `produce_listings`, `orders`, ...). No hard-coded model list — add a
+new table via Alembic and the next `POST /api/v1/chat` sees it.
+
+### How it works
+
+```
+User question (Mr/Hi/En)
+        |
+        v
+  LLM (qwen3:8b via Ollama, local-first)
+   1. list_tables()          -> ["users","produce_listings",...]
+   2. get_table_info(table)  -> columns + PK/FK + indexes + pg_description + 3 sample rows
+   3. explain_query(sql)     -> EXPLAIN dry-run (optional check)
+   4. query_db(sql)          -> SELECT/WITH only, 5s timeout, LIMIT 100, auditable
+        |
+        v
+  Grounded answer + SQL + rows (never hallucinated prices)
+```
+
+- **Lazy discovery** (`tools.py`) — LangChain `SQLDatabaseToolkit` style: dump of all 11 tables
+  not injected upfront. Model calls `list_tables -> get_table_info(1-3)` lazily, scales to
+  100+ tables, saves tokens, shows sample rows / comments.
+- **Safety** (`executor.py`) — whitelist `SELECT|WITH` only, block mutation/DDL
+  (`INSERT/UPDATE/DELETE/DROP/...`), block `;` multi-statement, `statement_timeout 5s`,
+  `fetchmany 100`, `truncated` flag, param binding.
+- **Prompt** (`prompt.py`) — 4 tools `SYSTEM` enforces Marathi/Hindi/English answer,
+  `LIMIT 100`, `ILIKE` fuzzy, `₹/quintal dd-mm-yyyy`, never expose keys.
+- **Loop** (`agent.py`) — N-turn `≤4`, `≤3 tool calls/turn`, `FakeTransport` for offline tests.
+- **RAG** (`rag.py`, optional) — `pgvector 384d HNSW` (`intfloat/multilingual-e5-small`)
+  fallback when SQL returns 0 rows.
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/chat` | `{message, history[], language}` → `{answer, sql, columns, rows, truncated, schema_tables}` |
+| `GET` | `/api/v1/chat/schema` | Live `inspect` dump — all tables/columns/FKs (no hardcode, 5min cache) |
+| `GET` | `/api/v1/chat/health` | `{"status":"ok","service":"kisanmitra-chatbot"}` |
+
+Try in Swagger `/docs` or curl:
+
+```bash
+curl http://localhost:8000/api/v1/chat/schema | jq .table_names
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"how many ACTIVE listings per crop?","history":[]}' | jq .
+```
+
+### Running — Ollama (model handling)
+
+The chatbot needs a local LLM. No model auto-downloads — pull once:
+
+```bash
+# 1. Install Ollama (https://ollama.com)
+# macOS: brew install ollama  |  Linux: curl -fsSL https://ollama.com/install.sh | sh
+
+# 2. Start daemon (one-time, keep running)
+ollama serve &
+
+# 3. Pull model (first run downloads ~5GB, afterwards Ollama reuses cache)
+ollama pull qwen3:8b
+ollama list              # verify: qwen3:8b present
+
+# 4. Start KisanMitra — chatbot uses ollama automatically
+uvicorn app.main:app --reload --port 8000
+
+# Test
+curl -X POST http://localhost:8000/api/v1/chat \
+  -H "Content-Type: application/json" \
+  -d '{"message":"show active listings for onion","history":[]}'
+```
+
+- If `qwen3:8b` already present (`ollama list`), no pull needed — reuse cache instantly.
+- If Ollama not running, `POST /chat` returns `502 Ollama unreachable at http://localhost:11434`.
+  Start `ollama serve`, pull if first time, retry.
+- Switch model without code change (`.env`):
+
+```bash
+# .env
+ASSISTANT_MODEL="qwen3:8b"          # default
+# ASSISTANT_MODEL="sarvam-2b"       # Marathi-first
+# ASSISTANT_MODEL="agriparam:q4"    # custom GGUF via Modelfile
+OLLAMA_HOST="http://localhost:11434"
+```
+
+  Env read in `app/services/chatbot/client.py` + `app/core/config.py:31` (stdlib `urllib`,
+  `FakeTransport` for tests — no `openai` pip dep).
+
+- Tests mock LLM — no Ollama needed: `pytest tests/test_chatbot.py -v` (6 tests, SQLite in-memory).
+
+> Note — future tables (e.g., `mandi_prices`, `arrivals`) auto-appear in `list_tables`
+> after `alembic upgrade head` — no chatbot code change.
+
+---
+
+## 16. Future Services (Placeholders)
 
 The following services are scaffolded with clean interfaces but contain **no business logic** - they will be implemented in the next sprint:
 
