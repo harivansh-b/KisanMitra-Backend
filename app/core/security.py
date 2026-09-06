@@ -55,6 +55,43 @@ def verify_supabase_token(token: str) -> Dict[str, Any]:
     raise UnauthorizedException("Invalid authentication credentials")
 
 
+def verify_clerk_token(token: str) -> Dict[str, Any]:
+    """Validate a Clerk session JWT using the instance public JWKS endpoint."""
+    if not settings.CLERK_JWKS_URL:
+        raise UnauthorizedException("Clerk JWT verification is not configured")
+    try:
+        signing_key = jwt.PyJWKClient(settings.CLERK_JWKS_URL).get_signing_key_from_jwt(token).key
+        options = {"verify_aud": False}
+        kwargs: Dict[str, Any] = {"algorithms": ["RS256"], "options": options}
+        if settings.CLERK_ISSUER:
+            kwargs["issuer"] = settings.CLERK_ISSUER
+        payload = jwt.decode(token, signing_key, **kwargs)
+        if not payload.get("sub"):
+            raise UnauthorizedException("Clerk JWT missing subject")
+        return payload
+    except UnauthorizedException:
+        raise
+    except jwt.ExpiredSignatureError as exc:
+        raise UnauthorizedException("Token has expired") from exc
+    except jwt.InvalidTokenError as exc:
+        raise UnauthorizedException("Invalid Clerk authentication token") from exc
+    except Exception as exc:
+        raise UnauthorizedException("Clerk token verification failed") from exc
+
+
+def verify_auth_token(token: str) -> Dict[str, Any]:
+    """Use Clerk in configured environments; retain Supabase verification for legacy local tests."""
+    # Local fixtures and existing Supabase sessions use HS256; Clerk sessions use RS256.
+    # Selecting by algorithm keeps test/dev compatibility during the provider migration.
+    try:
+        algorithm = jwt.get_unverified_header(token).get("alg")
+    except jwt.InvalidTokenError:
+        algorithm = None
+    if settings.CLERK_JWKS_URL and algorithm != "HS256":
+        return verify_clerk_token(token)
+    return verify_supabase_token(token)
+
+
 def create_test_jwt(auth_user_id: str, email: str = "test@example.com", expires_in: int = 3600) -> str:
     """Helper to generate valid JWTs for unit and integration testing."""
     secret = settings.SUPABASE_JWT_SECRET or "super-secret-jwt-key-for-local-development-and-testing-32-chars-minimum"

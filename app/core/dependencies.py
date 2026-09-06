@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.exceptions import ForbiddenException, NotFoundException, UnauthorizedException
-from app.core.security import verify_supabase_token
+from app.core.security import verify_auth_token
 from app.models.buyer import BuyerProfile
 from app.models.farmer import FarmerProfile
 from app.models.fpo import FPOProfile
@@ -23,7 +23,7 @@ def get_current_token_payload(
         raise UnauthorizedException("Authentication token required in 'Authorization: Bearer <token>' header")
 
     token = credentials.credentials
-    payload = verify_supabase_token(token)
+    payload = verify_auth_token(token)
     return TokenPayload(
         sub=payload["sub"],
         email=payload.get("email"),
