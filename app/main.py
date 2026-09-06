@@ -47,8 +47,13 @@ app.add_middleware(
 # Register Custom Exception Handlers
 register_exception_handlers(app)
 
-# Include API Routers
+# Include API Routers (marketplace + chatbot)
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+
+# Chatbot — DB-aware SQL agent (auto-discovers all marketplace tables)
+from app.services.chatbot.router import router as chatbot_router  # noqa: E402
+
+app.include_router(chatbot_router, prefix=settings.API_V1_STR, tags=["chatbot"])
 
 
 @app.get("/", tags=["Health"])

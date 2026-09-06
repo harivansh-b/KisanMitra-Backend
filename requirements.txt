@@ -15,3 +15,9 @@ python-multipart>=0.0.18
 python-dotenv>=1.0.1
 pytest>=8.3.0
 pytest-asyncio>=0.24.0
+# Chatbot — DB-aware SQL agent
+pgvector>=0.4
+sqlparse>=0.5
+# Optional — RAG embedding offline (pick one):
+# fastembed>=0.3
+# sentence-transformers>=3.0
