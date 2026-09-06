@@ -9,6 +9,8 @@ from app.models.buyer_requirement import BuyerRequirement
 from app.models.order import Order
 from app.models.transaction import Transaction
 from app.models.document import Document
+from app.models.mandi import Mandi
+from app.models.mandi_price import MandiPrice
 
 __all__ = [
     "User",
@@ -22,4 +24,6 @@ __all__ = [
     "Order",
     "Transaction",
     "Document",
+    "Mandi",
+    "MandiPrice",
 ]

@@ -11,6 +11,8 @@ from app.api.v1.marketplace import router as marketplace_router
 from app.api.v1.orders import router as orders_router
 from app.api.v1.transactions import router as transactions_router
 from app.api.v1.storage import router as storage_router
+from app.api.v1.mandi import market_router, router as mandi_router
+from app.api.v1.directory import router as directory_router
 
 api_v1_router = APIRouter()
 
@@ -25,3 +27,6 @@ api_v1_router.include_router(marketplace_router)
 api_v1_router.include_router(orders_router)
 api_v1_router.include_router(transactions_router)
 api_v1_router.include_router(storage_router)
+api_v1_router.include_router(mandi_router)
+api_v1_router.include_router(market_router)
+api_v1_router.include_router(directory_router)

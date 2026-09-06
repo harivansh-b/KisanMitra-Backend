@@ -15,12 +15,28 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str = "mock-anon-key"
     SUPABASE_SERVICE_ROLE_KEY: str = "mock-service-role-key"
     SUPABASE_JWT_SECRET: Optional[str] = "super-secret-jwt-key-for-local-development-and-testing-32-chars-minimum"
+    # Clerk verifies browser-issued session JWTs. This is server-only.
+    CLERK_SECRET_KEY: str = ""
+    CLERK_JWKS_URL: str = ""
+    CLERK_ISSUER: str = ""
 
     # Database
     DATABASE_URL: str = "sqlite:///./kisanmitra.db"
 
     # CORS
-    CORS_ORIGINS: Union[List[str], str] = ["*"]
+    # Keep credential-bearing browser requests scoped to known origins.
+    # Deployments should set CORS_ORIGINS explicitly.
+    CORS_ORIGINS: Union[List[str], str] = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
+    FRONTEND_URL: str = "http://localhost:3000"
+
+    # Optional server-only official market-feed configuration.
+    MANDI_API_URL: str = ""
+    MANDI_API_KEY: str = ""
 
     # Storage Buckets
     STORAGE_BUCKET_DOCUMENTS: str = "documents"

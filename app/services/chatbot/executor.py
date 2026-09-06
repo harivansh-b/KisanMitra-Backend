@@ -18,7 +18,12 @@ MULTI_STMT_RE = re.compile(r";\s*\S")
 
 
 def validate_sql(sql: str) -> str:
-    s = sql.strip().rstrip(";").strip()
+    raw = sql.strip()
+    # Check before tolerating one optional trailing semicolon. Otherwise a
+    # chained mutation can be obscured by rstrip(";")/normalization.
+    if MULTI_STMT_RE.search(raw):
+        raise ValueError("multiple statements not allowed (single SELECT only)")
+    s = raw.rstrip(";").strip()
     if not s:
         raise ValueError("empty sql")
     # must start with SELECT or WITH
@@ -26,8 +31,6 @@ def validate_sql(sql: str) -> str:
         raise ValueError("only SELECT / WITH ... SELECT allowed")
     if FORBIDDEN_RE.search(s):
         raise ValueError("mutation/DDL keywords not allowed")
-    if MULTI_STMT_RE.search(s):
-        raise ValueError("multiple statements not allowed (single SELECT only)")
     return s
 
 

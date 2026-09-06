@@ -238,7 +238,9 @@ On startup, the application:
 
 ## 9. Authentication Flow
 
-KisanMitra uses **Supabase Auth** for identity management.
+KisanMitra uses **Clerk** for identity management and JWT verification. Supabase remains the database and storage provider.
+
+Set `CLERK_SECRET_KEY`, `CLERK_ISSUER`, and `CLERK_JWKS_URL` in the backend environment. The authenticated `/api/v1/directory/nearby` endpoint returns privacy-safe nearby Farmer, Buyer, and FPO map participants without contact details.
 
 ```
 1. Client registers/logs in via Supabase Auth SDK
