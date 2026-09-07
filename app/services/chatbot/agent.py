@@ -55,26 +55,26 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
     msg_lower = user_message.lower()
     if any(kw in msg_lower for kw in ["price", "mandi", "onion", "soybean", "cotton", "wheat", "nashik", "pune", "latur", "rate", "cost", "market"]):
         try:
-            # Build fast SQL query based on keywords
+            # Build fast SQL query based on keywords joining mandis table
             where_clauses = []
             if "onion" in msg_lower:
-                where_clauses.append("LOWER(commodity_name) LIKE '%onion%'")
+                where_clauses.append("LOWER(mp.commodity_name) LIKE '%onion%'")
             elif "soybean" in msg_lower:
-                where_clauses.append("LOWER(commodity_name) LIKE '%soybean%'")
+                where_clauses.append("LOWER(mp.commodity_name) LIKE '%soybean%'")
             elif "cotton" in msg_lower:
-                where_clauses.append("LOWER(commodity_name) LIKE '%cotton%'")
+                where_clauses.append("LOWER(mp.commodity_name) LIKE '%cotton%'")
             elif "wheat" in msg_lower:
-                where_clauses.append("LOWER(commodity_name) LIKE '%wheat%'")
+                where_clauses.append("LOWER(mp.commodity_name) LIKE '%wheat%'")
 
             if "nashik" in msg_lower:
-                where_clauses.append("LOWER(district) LIKE '%nashik%'")
+                where_clauses.append("LOWER(m.district) LIKE '%nashik%'")
             elif "pune" in msg_lower:
-                where_clauses.append("LOWER(district) LIKE '%pune%'")
+                where_clauses.append("LOWER(m.district) LIKE '%pune%'")
             elif "latur" in msg_lower:
-                where_clauses.append("LOWER(district) LIKE '%latur%'")
+                where_clauses.append("LOWER(m.district) LIKE '%latur%'")
 
             where_str = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
-            fast_sql = f"SELECT commodity_name, modal_price, min_price, max_price, district, arrival_date FROM mandi_prices{where_str} ORDER BY arrival_date DESC LIMIT 10"
+            fast_sql = f"SELECT mp.commodity_name, mp.modal_price, mp.min_price, mp.max_price, m.district, m.name as mandi_name, mp.arrival_date FROM mandi_prices mp JOIN mandis m ON mp.mandi_id = m.id{where_str} ORDER BY mp.arrival_date DESC LIMIT 10"
             
             res_dict = run_query(engine, fast_sql)
             rows = res_dict.get("rows", [])
