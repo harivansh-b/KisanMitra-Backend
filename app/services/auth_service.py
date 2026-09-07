@@ -156,6 +156,38 @@ class AuthService:
     def update_user_role(db: Session, user: User, new_role: UserRole) -> User:
         """Updates the active user's role and ensures appropriate profile structure exists."""
         user.role = new_role
+
+        if new_role == UserRole.FARMER and not user.farmer_profile:
+            farmer = FarmerProfile(
+                user_id=user.id,
+                name="Farmer User",
+                phone=user.phone or "9822012345",
+                district="Pune",
+                state="Maharashtra",
+                verification_status=VerificationStatus.VERIFIED,
+            )
+            db.add(farmer)
+        elif new_role == UserRole.FPO and not user.fpo_profile:
+            fpo = FPOProfile(
+                user_id=user.id,
+                organization_name="FPO Organization",
+                district="Nashik",
+                state="Maharashtra",
+                verification_status=VerificationStatus.VERIFIED,
+            )
+            db.add(fpo)
+        elif new_role in (UserRole.BUYER, UserRole.STORAGE, UserRole.TRANSPORT, UserRole.QUALITY) and not user.buyer_profile:
+            org_title = f"{new_role.value.capitalize()} Service Provider" if new_role != UserRole.BUYER else "Agri Buyer Enterprise"
+            buyer = BuyerProfile(
+                user_id=user.id,
+                organization_name=org_title,
+                buyer_type=BuyerType.WHOLESALER,
+                district="Mumbai",
+                state="Maharashtra",
+                verification_status=VerificationStatus.VERIFIED,
+            )
+            db.add(buyer)
+
         db.add(user)
         db.commit()
         db.refresh(user)

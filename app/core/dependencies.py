@@ -20,12 +20,7 @@ def get_current_token_payload(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_security),
 ) -> TokenPayload:
     if not credentials or not credentials.credentials:
-        return TokenPayload(
-            sub="demo-user-001",
-            email="demo.farmer@kisanmitra.in",
-            role="FARMER",
-            exp=9999999999,
-        )
+        raise UnauthorizedException("Authorization token missing")
 
     token = credentials.credentials
     try:
@@ -37,12 +32,7 @@ def get_current_token_payload(
             exp=payload.get("exp"),
         )
     except Exception:
-        return TokenPayload(
-            sub="demo-user-001",
-            email="demo.farmer@kisanmitra.in",
-            role="FARMER",
-            exp=9999999999,
-        )
+        raise UnauthorizedException("Invalid authentication token")
 
 
 def get_current_user(
@@ -51,21 +41,7 @@ def get_current_user(
 ) -> User:
     user = db.query(User).filter(User.auth_user_id == token_payload.sub).first()
     if not user:
-        user = db.query(User).first()
-        if not user:
-            user = User(
-                auth_user_id="demo-user-001",
-                email="demo.farmer@kisanmitra.in",
-                role=UserRole.FARMER,
-                full_name="Ramesh Patil",
-                phone_number="+91 98220 12345",
-                district="Pune",
-                state="Maharashtra",
-                is_active=True,
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
+        raise UnauthorizedException("User profile not registered")
     return user
 
 

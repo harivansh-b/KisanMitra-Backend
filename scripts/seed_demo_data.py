@@ -63,13 +63,35 @@ DEMO_FPOS = [
 ]
 
 DEMO_BUYERS = [
-    # (auth_user_id, org_name, buyer_type, contact, district, phone, lat, lon)
-    ("demo-buyer-001", "MahaFresh Foods Pvt Ltd", "WHOLESALER",
-     "Suresh Mehta", "Pune", "9876502001", 18.5204, 73.8567),
-    ("demo-buyer-002", "Sahyadri Agro Exports", "EXPORTER",
-     "Priya Joshi", "Nashik", "9876502002", 19.9975, 73.7898),
-    ("demo-buyer-003", "Nagpur Agri Processing Co", "PROCESSOR",
-     "Rakesh Singh", "Nagpur", "9876502003", 21.1458, 79.0882),
+    # (auth_user_id, org_name, buyer_type, contact, district, phone, lat, lon, role)
+    ("demo-buyer-001", "MahaFresh Foods Pvt Ltd", "WHOLESALER", "Suresh Mehta", "Pune", "9876502001", 18.5204, 73.8567, "BUYER"),
+    ("demo-buyer-002", "Sahyadri Agro Exports", "EXPORTER", "Priya Joshi", "Nashik", "9876502002", 19.9975, 73.7898, "BUYER"),
+    ("demo-buyer-003", "Nagpur Agri Processing Co", "PROCESSOR", "Rakesh Singh", "Nagpur", "9876502003", 21.1458, 79.0882, "BUYER"),
+    ("demo-buyer-004", "Mumbai APMC Wholesale Traders", "WHOLESALER", "Vikram Shah", "Mumbai", "9876502004", 19.0760, 72.8777, "BUYER"),
+
+    # Storage Managers
+    ("demo-storage-001", "Vidarbha Cold Storage Warehouse (Storage Manager)", "WHOLESALER", "Prakash Deshmukh", "Nagpur", "9876503001", 21.1458, 79.0882, "BUYER"),
+    ("demo-storage-002", "Nashik Fresh Cold Chain Warehouse (Storage Manager)", "WHOLESALER", "Sunil Shinde", "Nashik", "9876503002", 19.9975, 73.7898, "BUYER"),
+    ("demo-storage-003", "Pune Central Agri Warehouse (Storage Manager)", "WHOLESALER", "Anil More", "Pune", "9876503003", 18.5204, 73.8567, "BUYER"),
+    ("demo-storage-004", "Solapur Cold Storage Solutions (Storage Manager)", "WHOLESALER", "Ganesh Kadam", "Solapur", "9876503004", 17.6599, 75.9064, "BUYER"),
+    ("demo-storage-005", "Latur Grain Storage Hub (Storage Manager)", "WHOLESALER", "Vijay Rathod", "Latur", "9876503005", 18.4088, 76.5604, "BUYER"),
+    ("demo-storage-006", "Amravati Multi-Commodity Storage (Storage Manager)", "WHOLESALER", "Deepak Gawande", "Amravati", "9876503006", 20.9374, 77.7796, "BUYER"),
+
+    # Transport Logistics
+    ("demo-transport-001", "Marathwada Express Logistics (Transport Logistics)", "WHOLESALER", "Vikas Jadhav", "Chhatrapati Sambhajinagar", "9876504001", 19.8762, 75.3433, "BUYER"),
+    ("demo-transport-002", "Pune Sahyadri Fleet (Transport Logistics)", "WHOLESALER", "Ajay Pawar", "Pune", "9876504002", 18.5204, 73.8567, "BUYER"),
+    ("demo-transport-003", "Nashik Freight Agro Fleet (Transport Logistics)", "WHOLESALER", "Nitin Salunkhe", "Nashik", "9876504003", 19.9975, 73.7898, "BUYER"),
+    ("demo-transport-004", "Nagpur Transport Logistics (Transport Logistics)", "WHOLESALER", "Rahul Verma", "Nagpur", "9876504004", 21.1458, 79.0882, "BUYER"),
+    ("demo-transport-005", "Kolhapur Refrigerated Trucks (Transport Logistics)", "WHOLESALER", "Santosh Patil", "Kolhapur", "9876504005", 16.7050, 74.2433, "BUYER"),
+    ("demo-transport-006", "Satara Agro Transporters (Transport Logistics)", "WHOLESALER", "Sachin Mane", "Satara", "9876504006", 17.6805, 74.0183, "BUYER"),
+
+    # Quality Assessors
+    ("demo-quality-001", "Mahagrapes Quality Testing Labs (Quality Assessor)", "WHOLESALER", "Dr. Meera Deshmukh", "Solapur", "9876505001", 17.6599, 75.9064, "BUYER"),
+    ("demo-quality-002", "Pune APMC Moisture Assessor Hub (Quality Assessor)", "WHOLESALER", "Sanjay Kulkarni", "Pune", "9876505002", 18.5204, 73.8567, "BUYER"),
+    ("demo-quality-003", "Nashik Grape & Onion Quality Center (Quality Assessor)", "WHOLESALER", "Dr. Ashok Borse", "Nashik", "9876505003", 19.9975, 73.7898, "BUYER"),
+    ("demo-quality-004", "Nagpur Citrus & Grain Grading Lab (Quality Assessor)", "WHOLESALER", "Dr. Kavita Joshi", "Nagpur", "9876505004", 21.1458, 79.0882, "BUYER"),
+    ("demo-quality-005", "Latur Pulse & Soybean Inspection Hub (Quality Assessor)", "WHOLESALER", "Rameshwar Giri", "Latur", "9876505005", 18.4088, 76.5604, "BUYER"),
+    ("demo-quality-006", "Amravati Cotton Quality Certifiers (Quality Assessor)", "WHOLESALER", "Pramod Tayade", "Amravati", "9876505006", 20.9374, 77.7796, "BUYER"),
 ]
 
 
@@ -226,18 +248,18 @@ def seed_users_and_profiles(conn, is_pg: bool):
                      "village": village, "district": district, "lat": lat, "lon": lon},
                 )
 
-    # --- Buyers ---
+    # --- Buyers, Storage Managers, Transport Logistics, Quality Assessors ---
     buyer_user_ids = {}
-    for auth_id, org_name, buyer_type, contact, district, phone, lat, lon in DEMO_BUYERS:
+    for auth_id, org_name, buyer_type, contact, district, phone, lat, lon, user_role in DEMO_BUYERS:
         user_id = user_exists(conn, auth_id)
         if not user_id:
             user_id = str(uuid.uuid4())
             conn.execute(
                 text("""
                     INSERT INTO users (id, auth_user_id, role, phone, email, is_active)
-                    VALUES (:id, :aid, 'BUYER', :phone, :email, TRUE)
+                    VALUES (:id, :aid, :role, :phone, :email, TRUE)
                 """),
-                {"id": user_id, "aid": auth_id, "phone": phone,
+                {"id": user_id, "aid": auth_id, "role": user_role, "phone": phone,
                  "email": f"{auth_id}@demo.kisanmitra.in"},
             )
             inserted += 1
