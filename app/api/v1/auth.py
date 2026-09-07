@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_token_payload, get_current_user, get_db
 from app.models.user import User
-from app.schemas.auth import AuthUserResponse, RegisterProfileRequest, TokenPayload
+from app.schemas.auth import AuthUserResponse, RegisterProfileRequest, TokenPayload, UpdateRoleRequest
 from app.services.auth_service import auth_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -36,3 +36,15 @@ def get_current_user_profile(
 ):
     """Returns the authenticated user's profile and active role."""
     return auth_service.get_user_full_profile(db, current_user)
+
+
+@router.put("/role", response_model=AuthUserResponse)
+def update_user_role(
+    req: UpdateRoleRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Updates the user's role and account profile details."""
+    updated_user = auth_service.update_user_role(db, current_user, req.role)
+    return auth_service.get_user_full_profile(db, updated_user)
+

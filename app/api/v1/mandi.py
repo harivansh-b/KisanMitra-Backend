@@ -46,7 +46,7 @@ def list_mandis(
 def get_mandi_prices(
     mandi_id: str,
     page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100),
+    page_size: int = Query(50, ge=1, le=500),
     db: Session = Depends(get_db),
 ):
     """Get all available prices for a specific mandi."""

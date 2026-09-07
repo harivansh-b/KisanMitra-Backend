@@ -50,6 +50,48 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
     """One chat turn -> {answer, sql, columns, rows, truncated, executions}."""
     history = history or []
     schema_tables = get_schema(engine).get("table_names", [])
+
+    # Fast direct SQL retrieval path for instant price & mandi queries
+    msg_lower = user_message.lower()
+    if any(kw in msg_lower for kw in ["price", "mandi", "onion", "soybean", "cotton", "wheat", "nashik", "pune", "latur", "rate", "cost", "market"]):
+        try:
+            # Build fast SQL query based on keywords
+            where_clauses = []
+            if "onion" in msg_lower:
+                where_clauses.append("LOWER(commodity_name) LIKE '%onion%'")
+            elif "soybean" in msg_lower:
+                where_clauses.append("LOWER(commodity_name) LIKE '%soybean%'")
+            elif "cotton" in msg_lower:
+                where_clauses.append("LOWER(commodity_name) LIKE '%cotton%'")
+            elif "wheat" in msg_lower:
+                where_clauses.append("LOWER(commodity_name) LIKE '%wheat%'")
+
+            if "nashik" in msg_lower:
+                where_clauses.append("LOWER(district) LIKE '%nashik%'")
+            elif "pune" in msg_lower:
+                where_clauses.append("LOWER(district) LIKE '%pune%'")
+            elif "latur" in msg_lower:
+                where_clauses.append("LOWER(district) LIKE '%latur%'")
+
+            where_str = (" WHERE " + " AND ".join(where_clauses)) if where_clauses else ""
+            fast_sql = f"SELECT commodity_name, modal_price, min_price, max_price, district, arrival_date FROM mandi_prices{where_str} ORDER BY arrival_date DESC LIMIT 10"
+            
+            res_dict = run_query(engine, fast_sql)
+            rows = res_dict.get("rows", [])
+            if rows:
+                summary = "; ".join(f"{r.get('commodity_name')}: Modal ₹{r.get('modal_price')}/q ({r.get('district') or 'Maharashtra'}, {r.get('arrival_date')})" for r in rows[:4])
+                return {
+                    "answer": f"Maharashtra Mandi market records: {summary}.",
+                    "sql": fast_sql,
+                    "columns": res_dict.get("columns"),
+                    "rows": rows,
+                    "truncated": False,
+                    "executions": [{"sql": fast_sql, "result": res_dict}],
+                    "schema_tables": schema_tables,
+                }
+        except Exception as fast_err:
+            print(f"[Fast Chatbot Retrieval Fallback]: {fast_err}")
+
     hint = f"Available tables: {', '.join(schema_tables)} — call list_tables then get_table_info for relevant ones."
 
     messages = build_messages_lazy(history, user_message, table_hint=hint)

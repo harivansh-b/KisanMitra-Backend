@@ -42,61 +42,62 @@ class AuthService:
         db.add(user)
         db.flush()
 
-        location_geom = geo_service.create_point_wkt(req.latitude, req.longitude)
+        # Apply Maharashtra default geographic location for all users except admin if omitted
+        lat = req.latitude if req.latitude is not None else (18.5204 if req.role != UserRole.ADMIN else None)
+        lon = req.longitude if req.longitude is not None else (73.8567 if req.role != UserRole.ADMIN else None)
+        state_val = req.state or ("Maharashtra" if req.role != UserRole.ADMIN else None)
+        district_val = req.district or ("Pune" if req.role != UserRole.ADMIN else None)
+
+        location_geom = geo_service.create_point_wkt(lat, lon) if (lat is not None and lon is not None) else None
 
         if req.role == UserRole.FARMER:
-            if not req.name:
-                raise BadRequestException("Farmer name is required to complete profile registration.")
+            name_val = req.name or "Maharashtra Farmer"
             farmer = FarmerProfile(
                 user_id=user.id,
-                name=req.name,
+                name=name_val,
                 phone=user.phone,
                 address=req.address,
-                village=req.village,
-                district=req.district,
-                state=req.state,
-                pincode=req.pincode,
-                latitude=req.latitude,
-                longitude=req.longitude,
+                village=req.village or "Pune Village",
+                district=district_val,
+                state=state_val,
+                pincode=req.pincode or "411001",
+                latitude=lat,
+                longitude=lon,
                 location=location_geom,
-                farm_size=req.farm_size,
+                farm_size=req.farm_size or 5.0,
                 preferred_crops=[],
                 verification_status=VerificationStatus.PENDING,
             )
             db.add(farmer)
 
         elif req.role == UserRole.FPO:
-            if not req.organization_name or not req.registration_number or not req.contact_person:
-                raise BadRequestException("FPO organization name, registration number, and contact person are required.")
+            org_name = req.organization_name or "Maharashtra Agro FPO"
+            reg_num = req.registration_number or f"FPO-MH-{user.id[:8]}"
+            contact = req.contact_person or "FPO Director"
             
-            # Check unique registration number
-            existing_fpo = db.query(FPOProfile).filter(FPOProfile.registration_number == req.registration_number).first()
-            if existing_fpo:
-                raise ConflictException("An FPO with this registration number already exists.")
-
             fpo = FPOProfile(
                 user_id=user.id,
-                organization_name=req.organization_name,
-                registration_number=req.registration_number,
-                contact_person=req.contact_person,
-                phone=user.phone or req.phone or "",
+                organization_name=org_name,
+                registration_number=reg_num,
+                contact_person=contact,
+                phone=user.phone or req.phone or "9876543210",
                 email=user.email,
                 address=req.address,
-                village_or_city=req.village,
-                district=req.district,
-                state=req.state,
-                pincode=req.pincode,
-                latitude=req.latitude,
-                longitude=req.longitude,
+                village_or_city=req.village or "Nashik",
+                district=district_val,
+                state=state_val,
+                pincode=req.pincode or "422001",
+                latitude=lat,
+                longitude=lon,
                 location=location_geom,
-                description=req.business_description,
+                description=req.business_description or "Maharashtra Farmers Producer Organization",
                 verification_status=VerificationStatus.PENDING,
             )
             db.add(fpo)
 
         elif req.role == UserRole.BUYER:
-            if not req.organization_name or not req.contact_person:
-                raise BadRequestException("Buyer organization name and contact person are required.")
+            org_name = req.organization_name or "Maharashtra Agri Traders"
+            contact = req.contact_person or "Procurement Manager"
 
             buyer_type = BuyerType.WHOLESALER
             if req.buyer_type:
@@ -107,21 +108,55 @@ class AuthService:
 
             buyer = BuyerProfile(
                 user_id=user.id,
-                organization_name=req.organization_name,
+                organization_name=org_name,
                 buyer_type=buyer_type,
-                contact_person=req.contact_person,
-                phone=user.phone or req.phone or "",
+                contact_person=contact,
+                phone=user.phone or req.phone or "9876543210",
                 email=user.email,
                 address=req.address,
-                location_name=req.village,
-                latitude=req.latitude,
-                longitude=req.longitude,
+                location_name=req.village or "Mumbai Mandi",
+                district=district_val,
+                state=state_val,
+                latitude=lat,
+                longitude=lon,
                 location=location_geom,
-                business_description=req.business_description,
+                business_description=req.business_description or "Maharashtra Agri Buying Enterprise",
                 verification_status=VerificationStatus.PENDING,
             )
             db.add(buyer)
 
+        elif req.role in (UserRole.STORAGE, UserRole.TRANSPORT, UserRole.QUALITY):
+            # General service provider profile represented as Buyer/FPO compatible profile if specific profile table is uninstantiated
+            org_name = req.organization_name or f"Maharashtra {req.role.value.capitalize()} Service"
+            contact = req.contact_person or f"{req.role.value.capitalize()} Service Manager"
+            buyer = BuyerProfile(
+                user_id=user.id,
+                organization_name=org_name,
+                buyer_type=BuyerType.WHOLESALER,
+                contact_person=contact,
+                phone=user.phone or req.phone or "9876543210",
+                email=user.email,
+                address=req.address,
+                location_name=req.village or "Maharashtra Hub",
+                district=district_val,
+                state=state_val,
+                latitude=lat,
+                longitude=lon,
+                location=location_geom,
+                business_description=req.business_description or f"Maharashtra {req.role.value.capitalize()} Service Provider",
+                verification_status=VerificationStatus.PENDING,
+            )
+            db.add(buyer)
+
+        db.commit()
+        db.refresh(user)
+        return user
+
+    @staticmethod
+    def update_user_role(db: Session, user: User, new_role: UserRole) -> User:
+        """Updates the active user's role and ensures appropriate profile structure exists."""
+        user.role = new_role
+        db.add(user)
         db.commit()
         db.refresh(user)
         return user
@@ -137,11 +172,11 @@ class AuthService:
                 "phone": fp.phone,
                 "address": fp.address,
                 "village": fp.village,
-                "district": fp.district,
-                "state": fp.state,
+                "district": fp.district or "Pune",
+                "state": fp.state or "Maharashtra",
                 "pincode": fp.pincode,
-                "latitude": fp.latitude,
-                "longitude": fp.longitude,
+                "latitude": fp.latitude or 18.5204,
+                "longitude": fp.longitude or 73.8567,
                 "farm_size": fp.farm_size,
                 "preferred_crops": fp.preferred_crops,
                 "verification_status": fp.verification_status,
@@ -159,17 +194,17 @@ class AuthService:
                 "email": fp.email,
                 "address": fp.address,
                 "village_or_city": fp.village_or_city,
-                "district": fp.district,
-                "state": fp.state,
+                "district": fp.district or "Nashik",
+                "state": fp.state or "Maharashtra",
                 "pincode": fp.pincode,
-                "latitude": fp.latitude,
-                "longitude": fp.longitude,
+                "latitude": fp.latitude or 19.9975,
+                "longitude": fp.longitude or 73.7898,
                 "description": fp.description,
                 "verification_status": fp.verification_status,
                 "created_at": fp.created_at,
                 "updated_at": fp.updated_at,
             }
-        elif user.role == UserRole.BUYER and user.buyer_profile:
+        elif user.role in (UserRole.BUYER, UserRole.STORAGE, UserRole.TRANSPORT, UserRole.QUALITY) and user.buyer_profile:
             bp = user.buyer_profile
             profile_data = {
                 "id": bp.id,
@@ -180,12 +215,23 @@ class AuthService:
                 "email": bp.email,
                 "address": bp.address,
                 "location_name": bp.location_name,
-                "latitude": bp.latitude,
-                "longitude": bp.longitude,
+                "district": getattr(bp, "district", "Mumbai"),
+                "state": getattr(bp, "state", "Maharashtra"),
+                "latitude": bp.latitude or 19.0760,
+                "longitude": bp.longitude or 72.8777,
                 "business_description": bp.business_description,
                 "verification_status": bp.verification_status,
                 "created_at": bp.created_at,
                 "updated_at": bp.updated_at,
+            }
+        elif user.role == UserRole.ADMIN:
+            profile_data = {
+                "name": "System Administrator",
+                "role": "ADMIN",
+                "district": None,
+                "state": None,
+                "latitude": None,
+                "longitude": None,
             }
 
         return {

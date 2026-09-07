@@ -5,7 +5,11 @@ class UserRole(str, Enum):
     FARMER = "FARMER"
     FPO = "FPO"
     BUYER = "BUYER"
+    STORAGE = "STORAGE"
+    TRANSPORT = "TRANSPORT"
+    QUALITY = "QUALITY"
     ADMIN = "ADMIN"
+
 
 
 class VerificationStatus(str, Enum):
@@ -96,5 +100,9 @@ class DocumentOwnerType(str, Enum):
     FARMER = "FARMER"
     FPO = "FPO"
     BUYER = "BUYER"
+    STORAGE = "STORAGE"
+    TRANSPORT = "TRANSPORT"
+    QUALITY = "QUALITY"
+    ADMIN = "ADMIN"
     LISTING = "LISTING"
     ORDER = "ORDER"
