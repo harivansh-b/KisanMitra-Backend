@@ -318,7 +318,7 @@ def seed_listings(conn, is_pg: bool):
 
         crop_id = get_crop_id(conn, crop_like)
         if not crop_id:
-            print(f"  ⚠ Crop not found: {crop_like} — skipping listing")
+            print(f"  [WARNING] Crop not found: {crop_like} — skipping listing")
             continue
 
         # Try to set price near mandi modal price

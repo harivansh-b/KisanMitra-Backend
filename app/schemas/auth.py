@@ -12,23 +12,33 @@ class TokenPayload(BaseModel):
 
 
 class RegisterProfileRequest(BaseModel):
-    role: UserRole = Field(description="Platform role to register: FARMER, FPO, or BUYER")
+    role: UserRole = Field(description="Platform role to register: FARMER, FPO, BUYER, STORAGE, TRANSPORT, QUALITY, ADMIN")
     phone: Optional[str] = None
     # Role-specific initial data
-    name: Optional[str] = Field(None, description="Used for Farmer name")
-    organization_name: Optional[str] = Field(None, description="Used for FPO or Buyer org name")
-    registration_number: Optional[str] = Field(None, description="Required for FPO")
-    contact_person: Optional[str] = Field(None, description="Used for FPO or Buyer")
+    name: Optional[str] = Field(None, description="Used for Farmer/Individual name")
+    organization_name: Optional[str] = Field(None, description="Used for FPO, Buyer, Storage, Transport, Quality org name")
+    registration_number: Optional[str] = Field(None, description="Registration or License number")
+    contact_person: Optional[str] = Field(None, description="Contact person name")
     address: Optional[str] = None
     village: Optional[str] = None
     district: Optional[str] = None
-    state: Optional[str] = None
+    state: Optional[str] = Field("Maharashtra", description="State location (defaults to Maharashtra)")
     pincode: Optional[str] = None
-    latitude: Optional[float] = None
-    longitude: Optional[float] = None
+    latitude: Optional[float] = Field(18.5204, description="Default latitude (Maharashtra)")
+    longitude: Optional[float] = Field(73.8567, description="Default longitude (Maharashtra)")
     farm_size: Optional[float] = None
     buyer_type: Optional[str] = None
     business_description: Optional[str] = None
+
+
+class UpdateRoleRequest(BaseModel):
+    role: UserRole = Field(..., description="New role for the user")
+    organization_name: Optional[str] = None
+    contact_person: Optional[str] = None
+    district: Optional[str] = None
+    state: Optional[str] = "Maharashtra"
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 
 
 class AuthUserResponse(BaseModel):

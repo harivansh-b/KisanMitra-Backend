@@ -6,7 +6,7 @@ T = TypeVar("T")
 
 class PaginationParams(BaseModel):
     page: int = Field(default=1, ge=1, description="Page number starting at 1")
-    page_size: int = Field(default=20, ge=1, le=100, description="Items per page")
+    page_size: int = Field(default=20, ge=1, le=500, description="Items per page")
 
     @property
     def offset(self) -> int:
