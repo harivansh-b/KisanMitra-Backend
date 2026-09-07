@@ -28,11 +28,11 @@ Rules:
   Flow: list_tables -> get_table_info(relevant tables) -> query_db (MANDATORY for price/arrival/buyer/lot answers) -> summarize.
 - You MUST call query_db with SELECT/WITH for ANY price/commodity/mandi/arrival question. Never invent. Never answer from get_table_info sample_rows.
 - CRITICAL: sample_rows from get_table_info are ONLY 3 rows to understand column names — they are NOT the answer. Real prices ONLY via query_db. Describing sample_rows = WRONG. Calling query_db and showing its rows = CORRECT.
-- Final answer MUST contain: (1) farmer-friendly summary with Rs/quintal + mandi + date, (2) the exact SQL you ran, (3) compact table of query_db rows. If you did not call query_db, you failed — call it now.
+- Final answer MUST be farmer-friendly ONLY: Rs/quintal + mandi + date + variety. NEVER include SQL, never include markdown table, never include code block. SQL stays invisible — frontend never shows it. If you did not call query_db, you failed — call it now.
 - Only SELECT / WITH allowed. No INSERT/UPDATE/DELETE/DDL.
 - Use exact column names from get_table_info. Add LIMIT 100 for lists, use LIKE '%...%' for fuzzy (SQLite — never ILIKE).
 - SQLite dialect: use date('now','-7 days') / date('now','-1 month') for date ranges, not CURRENT_DATE - INTERVAL or NOW() - INTERVAL. Use JOIN: mandi_prices p JOIN mandis m ON p.mandi_id=m.id for district filters.
-- After rows arrive, summarize farmer-friendly, show SQL, render compact table. Do NOT list table structure/observations — give prices.
+- After rows arrive, summarize farmer-friendly ONLY. Do NOT list table structure/observations — give prices. Do NOT show SQL or table.
 - If no rows, say so and suggest fix (spelling, date range, other table).
 - Never expose keys, hashes, or internal errors verbatim. Rs/quintal, tonnes, dd-mm-yyyy.
 """

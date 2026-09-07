@@ -121,8 +121,7 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
                 _rows_pre = _fast_res.get("rows", []) or []
                 top = _rows_pre[:10]
                 lines = [f"{r.get('name')} — {r.get('district')}, {r.get('state')} ({r.get('market_code')})" for r in top]
-                table_md = "| name | district | state | code |\n|---|---|---|---|\n" + "\n".join(f"| {r.get('name')} | {r.get('district')} | {r.get('state')} | {r.get('market_code')} |" for r in top)
-                _ans = f"Mandis ({len(_rows_pre)} records):\n" + "\n".join(f"- {l}" for l in lines) + f"\n\nSQL: `{_fast_sql}`\n\n{table_md}"
+                _ans = f"Mandis ({len(_rows_pre)} records):\n" + "\n".join(f"- {l}" for l in lines)
                 result = {"answer": _ans, "sql": _fast_sql, "columns": _fast_res.get("columns"), "rows": _rows_pre, "truncated": bool(_fast_res.get("truncated")), "executions": [{"sql": _fast_sql, "result": _fast_res}], "schema_tables": schema_tables}
                 _RESPONSE_CACHE[_ckey] = (_time.time(), result)
                 if len(_RESPONSE_CACHE) > 32:
@@ -162,14 +161,12 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
                         if _is_cheapest or _is_highest:
                             label = "Cheapest" if _is_cheapest else "Highest"
                             lines = [_fmt_row_price(r) for r in top]
-                            table_md = _table_md(_fast_res.get("columns") or [], _rows_pre, 5)
-                            _ans = f"{label} { _kw_pre.capitalize() } prices (Rs/quintal) — {len(_rows_pre)} records:\n" + "\n".join(f"- {l}" for l in lines) + f"\n\nSQL: `{_fast_sql}`\n\n{table_md}"
+                            _ans = f"{label} { _kw_pre.capitalize() } prices (Rs/quintal) — {len(_rows_pre)} records:\n" + "\n".join(f"- {l}" for l in lines)
                         else:
                             lines = [_fmt_row_price(r) for r in top]
-                            table_md = _table_md(_fast_res.get("columns") or [], _rows_pre, 5)
-                            _ans = f"Latest prices (Rs/quintal) — {len(_rows_pre)} records:\n" + "\n".join(f"- {l}" for l in lines) + f"\n\nSQL: `{_fast_sql}`\n\n{table_md}"
+                            _ans = f"Latest prices (Rs/quintal) — {len(_rows_pre)} records:\n" + "\n".join(f"- {l}" for l in lines)
                     else:
-                        _ans = f"No price records for '{_kw_pre}'. Try different spelling.\n\nSQL: `{_fast_sql}`"
+                        _ans = f"No price records for '{_kw_pre}'. Try different spelling."
                     result = {"answer": _ans, "sql": _fast_sql, "columns": _fast_res.get("columns"), "rows": _rows_pre, "truncated": bool(_fast_res.get("truncated")), "executions": [{"sql": _fast_sql, "result": _fast_res}], "schema_tables": schema_tables}
                     _RESPONSE_CACHE[_ckey] = (_time.time(), result)
                     if len(_RESPONSE_CACHE) > 32:
@@ -205,7 +202,6 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
                         vols[r["commodity_name"]] = max(vols.get(r["commodity_name"], 0), r["volatility"] or 0)
                     high_vol = max(vols, key=vols.get) if vols else ""
                     lines = [f"{r['arrival_date']} {r['commodity_name']}: avg Rs {r['avg_modal']:.0f}/qtl qty {r['total_qty']:.0f} volatility {r['volatility']:.0f}" for r in _crows[:10]]
-                    table_md = "| date | commodity | avg_modal | total_qty | volatility |\n|---|---|---|---|---|\n" + "\n".join(f"| {r['arrival_date']} | {r['commodity_name']} | {r['avg_modal']:.0f} | {r['total_qty']:.0f} | {r['volatility']:.0f} |" for r in _crows[:10])
                     rec = ""
                     if top_onion:
                         rec += f"\nHighest Onion on {latest}: Rs {top_onion['avg_modal']:.0f} avg."
@@ -219,7 +215,7 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
                             rec += f" Best mandi to sell Onion tomorrow: {_brows[0]['mandi']} (Rs {_brows[0]['modal_price']}/qtl) — highest price momentum."
                     except Exception:
                         pass
-                    _ans = f"7-day Nashik compare ({', '.join(_found)}):\n" + "\n".join(f"- {l}" for l in lines) + rec + f"\n\nSQL: `{_complex_sql}`\n\n{table_md}"
+                    _ans = f"7-day Nashik compare ({', '.join(_found)}):\n" + "\n".join(f"- {l}" for l in lines) + rec
                     result = {"answer": _ans, "sql": _complex_sql, "columns": _cres.get("columns"), "rows": _crows, "truncated": bool(_cres.get("truncated")), "executions": [{"sql": _complex_sql, "result": _cres}], "schema_tables": _schema_tables2}
                     _RESPONSE_CACHE[_ckey] = (_time.time(), result)
                     if len(_RESPONSE_CACHE) > 32:
@@ -316,17 +312,15 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
             _cols = _res.get("columns") or []
             if _rows:
                 lines = [_fmt_row_price(r) for r in _rows[:5]]
-                table_md = _table_md(_cols, _rows, 5)
-                # label cheapest/highest if query sorted by price
                 _low_ans = user_message.lower()
                 _label = "Latest prices"
                 if "cheapest" in _low_ans or "lowest" in _low_ans:
                     _label = "Cheapest prices"
                 elif "highest" in _low_ans or "costliest" in _low_ans:
                     _label = "Highest prices"
-                answer = f"{_label} (Rs/quintal) — {len(_rows)} records:\n" + "\n".join(f"- {l}" for l in lines) + f"\n\nSQL: `{_sql}`\n\n{table_md}"
+                answer = f"{_label} (Rs/quintal) — {len(_rows)} records:\n" + "\n".join(f"- {l}" for l in lines)
             else:
-                answer = f"No records for that keyword. Try different spelling or broader query.\n\nSQL: `{_sql}`"
+                answer = "No records for that keyword. Try different spelling or broader query."
         else:
             final = client.chat(messages)
             answer = (final.get("content") or "").strip() or _fallback_answer(executed)
@@ -334,6 +328,14 @@ def chat_once(engine, client, user_message: str, history: list[dict] | None = No
         answer = ((last_msg or {}).get("content") or "").strip()
         if not answer:
             answer = _fallback_answer(executed) or "Ask me about mandis, prices, buyers, lots, auctions — I will query the database for you."
+
+    # sanitize: strip any SQL/code leaked into answer (defense in depth — prompt says no SQL)
+    import re as _re_sanitize
+    answer = _re_sanitize.sub(r"```sql.*?```", "", answer, flags=_re_sanitize.DOTALL | _re_sanitize.IGNORECASE)
+    answer = _re_sanitize.sub(r"```.*?```", "", answer, flags=_re_sanitize.DOTALL)
+    answer = _re_sanitize.sub(r"(?m)^\s*SQL\s*:\s*`.*?`.*$", "", answer)
+    answer = _re_sanitize.sub(r"(?m)^\s*\|.*\|.*$", "", answer)  # markdown table rows
+    answer = _re_sanitize.sub(r"\n{3,}", "\n\n", answer).strip()
 
     # primary = first query_db result for backwards compat
     primary = next((e for e in executed if "result" in e and "sql" in e), {})
