@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # Chatbot — local LLM (SIH2026 local-first, no API bill)
     ASSISTANT_MODEL: str = "qwen3:8b"
     OLLAMA_HOST: str = "http://localhost:11434"
+    # Cloud fallback (optional) — Groq fastest, then Gemini
+    GOOGLE_API_KEY: str = ""
+    GEMINI_MODEL: str = "gemini-pro-latest"
+    GROQ_API_KEY: str = ""
+    GROQ_MODEL: str = "llama-3.1-8b-instant"
+    LLM_PROVIDER: str = "auto"  # auto=ollama->groq->gemini | ollama | groq | gemini
     BHASHINI_USER_ID: str = ""
     BHASHINI_API_KEY: str = ""
 
