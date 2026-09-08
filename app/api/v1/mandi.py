@@ -160,3 +160,21 @@ def get_market_resource_prices(
     db: Session = Depends(get_db),
 ):
     return get_mandi_prices(mandi_id, page, page_size, db)
+
+
+from app.services.price_prediction_service import price_prediction_service
+from app.schemas.mandi import PricePredictionForecastResponse
+
+
+@router.get("/predictions", response_model=List[dict])
+def list_price_predictions():
+    """List available N-BEATSX AI price predictions for Maharashtra APMC markets."""
+    return price_prediction_service.list_market_predictions()
+
+
+@router.get("/predictions/{market_id}", response_model=PricePredictionForecastResponse)
+def get_price_prediction_forecast(market_id: str):
+    """Get 7-day N-BEATSX price forecast with Open-Meteo weather parameters for a specific market."""
+    forecast = price_prediction_service.get_forecast(market_id)
+    return forecast
+

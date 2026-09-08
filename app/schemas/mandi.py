@@ -75,3 +75,37 @@ class NearbyMandiResult(BaseModel):
     distance_km: float
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PredictionPoint(BaseModel):
+    ds: str
+    predicted_modal_price: float
+    temp_max: float
+    temp_min: float
+    temp_mean: float
+    rainfall: float
+    et0: float
+
+
+class ModelMetrics(BaseModel):
+    mae: float
+    rmse: float
+    mape: float
+    training_markets_count: int
+    total_observations: int
+    test_observations: int
+
+
+class PricePredictionForecastResponse(BaseModel):
+    unique_id: str
+    market_name: str
+    commodity: str = "Onion"
+    district: str = "Nashik"
+    model_type: str = "N-BEATSX (NeuralForecast)"
+    input_window_days: int = 60
+    forecast_horizon_days: int = 7
+    weather_source: str = "Open-Meteo (Nashik Lat: 20.0059, Lon: 73.7897)"
+    metrics: Optional[ModelMetrics] = None
+    forecasts: List[PredictionPoint]
+
+
