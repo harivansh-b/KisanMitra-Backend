@@ -75,3 +75,10 @@ logs/
 ehthumbs.db
 Thumbs.db
 kisan_test.db
+
+lightning_logs/
+*.pkl
+*.pt
+*.pth
+*.ckpt
+__pycache__/
